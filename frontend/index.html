@@ -101,7 +101,7 @@
 
       try {
         // TODO: sostituire con URL del Cloudflare Worker reale
-        const WORKER_URL = 'demo-generator-worker.fumettiastro.workers.dev/generate';
+        const WORKER_URL = 'https://demo-generator-production-f2db.up.railway.app/generate';
 
         const res = await fetch(WORKER_URL, {
           method: 'POST',
