@@ -25,8 +25,9 @@ app.post('/generate', async (req, res) => {
   try {
     browser = await chromium.launch({
       headless: true,
-      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium'
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
+
 
     const context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
