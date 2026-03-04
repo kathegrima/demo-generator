@@ -1,1 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Demo Generator</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f0f0f;
+      color: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    p.subtitle { color: #888; margin-bottom: 2rem; font-size: 1rem; }
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 16px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 560px;
+    }
+    input[type="url"] {
+      width: 100%;
+      padding: 0.85rem 1rem;
+      border-radius: 10px;
+      border: 1px solid #333;
+      background: #111;
+      color: #fff;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      outline: none;
+    }
+    input[type="url"]:focus { border-color: #7c3aed; }
+    button {
+      width: 100%;
+      padding: 0.85rem;
+      border-radius: 10px;
+      border: none;
+      background: #7c3aed;
+      color: white;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #6d28d9; }
+    button:disabled { background: #444; cursor: not-allowed; }
+    #status {
+      margin-top: 1.5rem;
+      font-size: 0.9rem;
+      color: #aaa;
+      text-align: center;
+      min-height: 1.5rem;
+    }
+    #result { margin-top: 1.5rem; text-align: center; display: none; }
+    #result img { max-width: 100%; border-radius: 10px; }
+    #result a {
+      display: inline-block;
+      margin-top: 1rem;
+      color: #a78bfa;
+      text-decoration: underline;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎬 Demo Generator</h1>
+  <p class="subtitle">Paste a URL, get an animated demo in seconds.</p>
+
+  <div class="card">
+    <input type="url" id="urlInput" placeholder="https://example.com" />
+    <button id="generateBtn" onclick="generate()">Generate Demo</button>
+    <div id="status"></div>
+    <div id="result">
+      <img id="gifPreview" src="" alt="Generated demo" />
+      <br/>
+      <a id="downloadLink" href="#" download>⬇ Download GIF</a>
+    </div>
+  </div>
+
+  <script>
+    async function generate() {
+      const url = document.getElementById('urlInput').value.trim();
+      if (!url) return alert('Please enter a URL');
+
+      const btn = document.getElementById('generateBtn');
+      const status = document.getElementById('status');
+      const result = document.getElementById('result');
+
+      btn.disabled = true;
+      result.style.display = 'none';
+      status.textContent = '⏳ Analyzing page...';
+
+      try {
+        // TODO: sostituire con URL del Cloudflare Worker reale
+        const WORKER_URL = 'https://YOUR-WORKER.workers.dev/generate';
+
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+
+        const data = await res.json();
+        status.textContent = '✅ Done!';
+        document.getElementById('gifPreview').src = data.gif_url;
+        document.getElementById('downloadLink').href = data.gif_url;
+        result.style.display = 'block';
+      } catch (err) {
+        status.textContent = '❌ Error: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
 
