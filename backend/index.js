@@ -23,7 +23,11 @@ app.post('/generate', async (req, res) => {
 
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium'
+    });
+
     const context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
       recordVideo: { dir: './outputs/', size: { width: 1280, height: 720 } }
