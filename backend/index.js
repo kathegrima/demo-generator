@@ -53,25 +53,28 @@ ${html.slice(0, 15000)}
 
 // --- CURSORE ANIMATO ---
 const CURSOR_JS = `
-  const cursor = document.createElement('div');
-  cursor.id = '__demo_cursor__';
-  cursor.style.cssText = \`
-    position: fixed;
-    width: 28px;
-    height: 28px;
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24'%3E%3Cpath fill='white' stroke='black' stroke-width='1.5' d='M5 2l14 9-7 2-4 7z'/%3E%3C/svg%3E") no-repeat center/contain;
-    pointer-events: none;
-    z-index: 999999;
-    left: 100px;
-    top: 100px;
-    transition: left 0.2s ease, top 0.2s ease;
-  \`;
-  document.body.appendChild(cursor);
-  window.__moveCursor__ = (x, y) => {
-    cursor.style.left = x + 'px';
-    cursor.style.top = y + 'px';
-  };
+  (function() {
+    var cursor = document.createElement('div');
+    cursor.id = '__demo_cursor__';
+    cursor.style.position = 'fixed';
+    cursor.style.width = '28px';
+    cursor.style.height = '28px';
+    cursor.style.backgroundImage = "url(\\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24'%3E%3Cpath fill='white' stroke='black' stroke-width='1.5' d='M5 2l14 9-7 2-4 7z'/%3E%3C/svg%3E\\")";
+    cursor.style.backgroundRepeat = 'no-repeat';
+    cursor.style.backgroundSize = 'contain';
+    cursor.style.pointerEvents = 'none';
+    cursor.style.zIndex = '999999';
+    cursor.style.left = '100px';
+    cursor.style.top = '100px';
+    cursor.style.transition = 'left 0.2s ease, top 0.2s ease';
+    document.body.appendChild(cursor);
+    window.__moveCursor__ = function(x, y) {
+      cursor.style.left = x + 'px';
+      cursor.style.top = y + 'px';
+    };
+  })();
 `;
+
 
 // --- JOB RUNNER ---
 async function runJob(id, url) {
