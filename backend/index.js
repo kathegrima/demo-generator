@@ -12,7 +12,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type']
 }));
-app.options('*', cors()); // gestisce preflight su tutti gli endpoint
+app.options('*', cors());
 app.use(express.json());
 app.use('/outputs', express.static(path.join(__dirname, 'outputs')));
 
@@ -80,7 +80,6 @@ const CURSOR_JS = `
   })();
 `;
 
-
 // --- JOB RUNNER ---
 async function runJob(id, url) {
   let browser;
@@ -110,17 +109,71 @@ async function runJob(id, url) {
       recordVideo: { dir: './outputs/', size: { width: 1280, height: 720 } }
     });
 
+    // 4. Blocca script cookie/analytics di terze parti
+    await context.route('**/*', (route) => {
+      const url = route.request().url();
+      const blocked = [
+        'cookiebot', 'onetrust', 'cookiehub', 'gdpr',
+        'cookieyes', 'quantcast', 'trustarc', 'cookielaw',
+        'usercentrics', 'didomi'
+      ];
+      if (blocked.some(b => url.includes(b))) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
+
     const page = await context.newPage();
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(1500);
 
-    // 4. Inietta cursore
+    // 5. Rimuovi cookie banners via DOM
+    await page.evaluate(() => {
+      const selectors = [
+        '#cookie-banner', '#cookie-notice', '#cookie-consent',
+        '#cookieConsent', '#gdpr-banner', '#onetrust-banner-sdk',
+        '#CybotCookiebotDialog', '#cookie-law-info-bar',
+        '.cookie-banner', '.cookie-notice', '.cookie-bar',
+        '.cookie-consent', '.gdpr', '.cc-banner', '.cookieConsent',
+        '[class*="cookie-banner"]', '[id*="cookie-banner"]',
+        '[class*="gdpr-banner"]', '[id*="gdpr-banner"]',
+        '[class*="consent-banner"]'
+      ];
+      selectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => el.remove());
+      });
+      document.body.style.overflow = 'auto';
+      document.documentElement.style.overflow = 'auto';
+    });
+    await page.waitForTimeout(300);
+
+    // 6. Clicca "Accept" se presente
+    const acceptSelectors = [
+      '#onetrust-accept-btn-handler',
+      'button[id*="accept"]', 'button[class*="accept"]',
+      'a[id*="accept"]', 'a[class*="accept"]',
+      'button[id*="agree"]', 'button[class*="agree"]',
+      '.cc-accept', '.cc-btn', '[data-testid*="accept"]'
+    ];
+    for (const sel of acceptSelectors) {
+      try {
+        const btn = await page.$(sel);
+        if (btn) {
+          await btn.click();
+          await page.waitForTimeout(600);
+          break;
+        }
+      } catch (_) {}
+    }
+
+    // 7. Inietta cursore
     await page.evaluate(CURSOR_JS);
     await page.waitForTimeout(300);
     await page.evaluate(() => window.__moveCursor__(640, 360));
     await page.waitForTimeout(500);
 
-    // 5. Scroll fluido
+    // 8. Scroll fluido
     const scrollMax = plan.scroll_depth === 'half' ? 0.5 : 1.0;
     await page.evaluate(async (maxRatio) => {
       await new Promise(resolve => {
@@ -137,11 +190,11 @@ async function runJob(id, url) {
     }, scrollMax);
     await page.waitForTimeout(800);
 
-    // 6. Torna su
+    // 9. Torna su
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
     await page.waitForTimeout(800);
 
-    // 7. Typing
+    // 10. Typing
     if (plan.primary_input && plan.suggested_typing) {
       try {
         const inputEl = await page.$(plan.primary_input);
@@ -161,7 +214,7 @@ async function runJob(id, url) {
       }
     }
 
-    // 8. Click CTA
+    // 11. Click CTA
     if (plan.main_cta) {
       try {
         const ctaEl = await page.$(plan.main_cta);
@@ -184,7 +237,7 @@ async function runJob(id, url) {
     await browser.close();
     browser = null;
 
-    // 9. Trova video
+    // 12. Trova video
     const files = fs.readdirSync('./outputs').filter(f => f.endsWith('.webm'));
     const latest = files.map(f => ({
       f, t: fs.statSync(`./outputs/${f}`).mtimeMs
@@ -192,13 +245,14 @@ async function runJob(id, url) {
 
     if (!latest) throw new Error('Video not found');
 
-    // 10. Converti in GIF
+    // 13. Converti in GIF
     execSync(`ffmpeg -i ./outputs/${latest} -t 15 -vf "fps=8,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 ${gifPath}`);
 
+    const RAILWAY_URL = `https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'demo-generator-production-f2db.up.railway.app'}`;
     jobs[id] = {
       status: 'done',
-      gif_url: `https://demo-generator-production-f2db.up.railway.app/outputs/${id}.gif`,
-      mp4_url: `https://demo-generator-production-f2db.up.railway.app/outputs/${latest}`
+      gif_url: `${RAILWAY_URL}/outputs/${id}.gif`,
+      mp4_url: `${RAILWAY_URL}/outputs/${latest}`
     };
     console.log(`[${id}] Done!`);
 
