@@ -91,7 +91,7 @@ app.post('/generate', async (req, res) => {
     const actualVideo = `./outputs/${latest}`;
 
     // Converti in GIF con ffmpeg
-    execSync(`ffmpeg -i ${actualVideo} -vf "fps=10,scale=1280:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 ${gifPath}`);
+    execSync(`ffmpeg -i ${actualVideo} -t 15 -vf "fps=8,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 ${gifPath}`);
 
     const host = `${req.protocol}://${req.get('host')}`;
     res.json({
