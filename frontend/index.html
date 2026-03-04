@@ -22,7 +22,7 @@
     .card {
       background: #1a1a1a;
       border: 1px solid #2a2a2a;
-      border-radius: 16px;FWF
+      border-radius: 16px;
       padding: 2rem;
       width: 100%;
       max-width: 560px;
@@ -53,21 +53,43 @@
     }
     button:hover { background: #6d28d9; }
     button:disabled { background: #444; cursor: not-allowed; }
-    #status {
+    .progress {
       margin-top: 1.5rem;
-      font-size: 0.9rem;
+      display: none;
+    }
+    .progress-bar-bg {
+      background: #2a2a2a;
+      border-radius: 99px;
+      height: 6px;
+      overflow: hidden;
+      margin-bottom: 0.75rem;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: #7c3aed;
+      border-radius: 99px;
+      width: 0%;
+      transition: width 0.5s ease;
+    }
+    .progress-label {
+      font-size: 0.85rem;
       color: #aaa;
       text-align: center;
-      min-height: 1.5rem;
     }
     #result { margin-top: 1.5rem; text-align: center; display: none; }
     #result img { max-width: 100%; border-radius: 10px; }
-    #result a {
-      display: inline-block;
-      margin-top: 1rem;
+    .download-links { margin-top: 1rem; display: flex; gap: 1rem; justify-content: center; }
+    .download-links a {
       color: #a78bfa;
       text-decoration: underline;
       font-size: 0.9rem;
+    }
+    #errorMsg {
+      margin-top: 1rem;
+      color: #f87171;
+      font-size: 0.9rem;
+      text-align: center;
+      display: none;
     }
   </style>
 </head>
@@ -78,49 +100,123 @@
   <div class="card">
     <input type="url" id="urlInput" placeholder="https://example.com" />
     <button id="generateBtn" onclick="generate()">Generate Demo</button>
-    <div id="status"></div>
+
+    <div class="progress" id="progressBox">
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-label" id="progressLabel">Starting...</div>
+    </div>
+
+    <div id="errorMsg"></div>
+
     <div id="result">
       <img id="gifPreview" src="" alt="Generated demo" />
-      <br/>
-      <a id="downloadLink" href="#" download>⬇ Download GIF</a>
+      <div class="download-links">
+        <a id="downloadGif" href="#" download>⬇ Download GIF</a>
+        <a id="downloadMp4" href="#" download>⬇ Download WebM</a>
+      </div>
     </div>
   </div>
 
   <script>
+    const BACKEND = 'https://demo-generator-production-f2db.up.railway.app';
+
+    const steps = [
+      { pct: 10, label: '🔍 Analyzing page with AI...' },
+      { pct: 30, label: '🌐 Opening browser...' },
+      { pct: 50, label: '🎥 Recording interaction...' },
+      { pct: 80, label: '🎞 Converting to GIF...' },
+      { pct: 95, label: '✨ Finishing up...' },
+    ];
+
     async function generate() {
       const url = document.getElementById('urlInput').value.trim();
       if (!url) return alert('Please enter a URL');
 
       const btn = document.getElementById('generateBtn');
-      const status = document.getElementById('status');
+      const progressBox = document.getElementById('progressBox');
       const result = document.getElementById('result');
+      const errorMsg = document.getElementById('errorMsg');
 
       btn.disabled = true;
       result.style.display = 'none';
-      status.textContent = '⏳ Analyzing page...';
+      errorMsg.style.display = 'none';
+      progressBox.style.display = 'block';
+      setProgress(5, '🚀 Starting job...');
 
       try {
-        // TODO: sostituire con URL del Cloudflare Worker reale
-        const WORKER_URL = 'https://demo-generator-production-f2db.up.railway.app/generate';
-
-        const res = await fetch(WORKER_URL, {
+        // Avvia job
+        const startRes = await fetch(`${BACKEND}/start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url })
         });
+        const { job_id } = await startRes.json();
 
-        const data = await res.json();
-        status.textContent = '✅ Done!';
-        document.getElementById('gifPreview').src = data.gif_url;
-        document.getElementById('downloadLink').href = data.gif_url;
-        result.style.display = 'block';
+        // Polling
+        let stepIndex = 0;
+        let attempts = 0;
+        const maxAttempts = 60; // 60 * 3s = 3 minuti max
+
+        const poll = setInterval(async () => {
+          attempts++;
+
+          // Avanza progress bar visivamente
+          if (stepIndex < steps.length) {
+            const s = steps[stepIndex];
+            setProgress(s.pct, s.label);
+            stepIndex++;
+          }
+
+          if (attempts > maxAttempts) {
+            clearInterval(poll);
+            showError('Timeout: generation took too long.');
+            btn.disabled = false;
+            return;
+          }
+
+          try {
+            const statusRes = await fetch(`${BACKEND}/status/${job_id}`);
+            const job = await statusRes.json();
+
+            if (job.status === 'done') {
+              clearInterval(poll);
+              setProgress(100, '✅ Done!');
+              setTimeout(() => {
+                progressBox.style.display = 'none';
+                document.getElementById('gifPreview').src = job.gif_url;
+                document.getElementById('downloadGif').href = job.gif_url;
+                document.getElementById('downloadMp4').href = job.mp4_url;
+                result.style.display = 'block';
+                btn.disabled = false;
+              }, 500);
+            } else if (job.status === 'error') {
+              clearInterval(poll);
+              showError('Error: ' + job.error);
+              btn.disabled = false;
+            }
+          } catch (_) {}
+
+        }, 3000); // poll ogni 3 secondi
+
       } catch (err) {
-        status.textContent = '❌ Error: ' + err.message;
-      } finally {
+        showError('Error: ' + err.message);
         btn.disabled = false;
       }
+    }
+
+    function setProgress(pct, label) {
+      document.getElementById('progressFill').style.width = pct + '%';
+      document.getElementById('progressLabel').textContent = label;
+    }
+
+    function showError(msg) {
+      const e = document.getElementById('errorMsg');
+      e.textContent = '❌ ' + msg;
+      e.style.display = 'block';
+      document.getElementById('progressBox').style.display = 'none';
     }
   </script>
 </body>
 </html>
-
