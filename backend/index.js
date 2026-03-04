@@ -7,7 +7,12 @@ const path = require('path');
 const crypto = require('crypto');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type']
+}));
+app.options('*', cors()); // gestisce preflight su tutti gli endpoint
 app.use(express.json());
 app.use('/outputs', express.static(path.join(__dirname, 'outputs')));
 
