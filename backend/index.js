@@ -111,13 +111,13 @@ async function runJob(id, url) {
 
     // 4. Blocca script cookie/analytics di terze parti
     await context.route('**/*', (route) => {
-      const url = route.request().url();
+      const reqUrl = route.request().url();
       const blocked = [
         'cookiebot', 'onetrust', 'cookiehub', 'gdpr',
         'cookieyes', 'quantcast', 'trustarc', 'cookielaw',
         'usercentrics', 'didomi'
       ];
-      if (blocked.some(b => url.includes(b))) {
+      if (blocked.some(b => reqUrl.includes(b))) {
         route.abort();
       } else {
         route.continue();
@@ -125,10 +125,35 @@ async function runJob(id, url) {
     });
 
     const page = await context.newPage();
+
+    // 5. SOLUZIONE 1: inietta rimozione banner PRIMA che la pagina carichi
+    await page.addInitScript(() => {
+      const removeBanners = () => {
+        const selectors = [
+          '#cookie-banner', '#cookie-notice', '#cookie-consent',
+          '#cookieConsent', '#gdpr-banner', '#onetrust-banner-sdk',
+          '#CybotCookiebotDialog', '#cookie-law-info-bar',
+          '.cookie-banner', '.cookie-notice', '.cookie-bar',
+          '.cookie-consent', '.gdpr', '.cc-banner', '.cookieConsent',
+          '[class*="cookie-banner"]', '[id*="cookie-banner"]',
+          '[class*="gdpr-banner"]', '[id*="gdpr-banner"]',
+          '[class*="consent-banner"]', '[class*="cookie-wall"]'
+        ];
+        selectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => el.remove());
+        });
+        document.body.style.overflow = 'auto';
+        document.documentElement.style.overflow = 'auto';
+      };
+      removeBanners();
+      const interval = setInterval(removeBanners, 500);
+      setTimeout(() => clearInterval(interval), 5000);
+    });
+
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(1500);
 
-    // 5. Rimuovi cookie banners via DOM
+    // 6. Rimuovi banner residui via DOM (doppia sicurezza)
     await page.evaluate(() => {
       const selectors = [
         '#cookie-banner', '#cookie-notice', '#cookie-consent',
@@ -137,8 +162,7 @@ async function runJob(id, url) {
         '.cookie-banner', '.cookie-notice', '.cookie-bar',
         '.cookie-consent', '.gdpr', '.cc-banner', '.cookieConsent',
         '[class*="cookie-banner"]', '[id*="cookie-banner"]',
-        '[class*="gdpr-banner"]', '[id*="gdpr-banner"]',
-        '[class*="consent-banner"]'
+        '[class*="gdpr-banner"]'
       ];
       selectors.forEach(sel => {
         document.querySelectorAll(sel).forEach(el => el.remove());
@@ -146,9 +170,8 @@ async function runJob(id, url) {
       document.body.style.overflow = 'auto';
       document.documentElement.style.overflow = 'auto';
     });
-    await page.waitForTimeout(300);
 
-    // 6. Clicca "Accept" se presente
+    // 7. Clicca "Accept" se ancora presente
     const acceptSelectors = [
       '#onetrust-accept-btn-handler',
       'button[id*="accept"]', 'button[class*="accept"]',
@@ -167,13 +190,13 @@ async function runJob(id, url) {
       } catch (_) {}
     }
 
-    // 7. Inietta cursore
+    // 8. Inietta cursore
     await page.evaluate(CURSOR_JS);
     await page.waitForTimeout(300);
     await page.evaluate(() => window.__moveCursor__(640, 360));
     await page.waitForTimeout(500);
 
-    // 8. Scroll fluido
+    // 9. Scroll fluido
     const scrollMax = plan.scroll_depth === 'half' ? 0.5 : 1.0;
     await page.evaluate(async (maxRatio) => {
       await new Promise(resolve => {
@@ -190,11 +213,11 @@ async function runJob(id, url) {
     }, scrollMax);
     await page.waitForTimeout(800);
 
-    // 9. Torna su
+    // 10. Torna su
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
     await page.waitForTimeout(800);
 
-    // 10. Typing
+    // 11. Typing
     if (plan.primary_input && plan.suggested_typing) {
       try {
         const inputEl = await page.$(plan.primary_input);
@@ -214,7 +237,7 @@ async function runJob(id, url) {
       }
     }
 
-    // 11. Click CTA
+    // 12. Click CTA
     if (plan.main_cta) {
       try {
         const ctaEl = await page.$(plan.main_cta);
@@ -237,7 +260,7 @@ async function runJob(id, url) {
     await browser.close();
     browser = null;
 
-    // 12. Trova video
+    // 13. Trova video
     const files = fs.readdirSync('./outputs').filter(f => f.endsWith('.webm'));
     const latest = files.map(f => ({
       f, t: fs.statSync(`./outputs/${f}`).mtimeMs
@@ -245,8 +268,8 @@ async function runJob(id, url) {
 
     if (!latest) throw new Error('Video not found');
 
-    // 13. Converti in GIF
-    execSync(`ffmpeg -i ./outputs/${latest} -t 15 -vf "fps=8,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 ${gifPath}`);
+    // 14. SOLUZIONE 2: converti in GIF saltando i primi 2 secondi
+    execSync(`ffmpeg -i ./outputs/${latest} -ss 2 -t 15 -vf "fps=8,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 ${gifPath}`);
 
     const RAILWAY_URL = `https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'demo-generator-production-f2db.up.railway.app'}`;
     jobs[id] = {
