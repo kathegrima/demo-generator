@@ -93,11 +93,13 @@ app.post('/generate', async (req, res) => {
     // Converti in GIF con ffmpeg
     execSync(`ffmpeg -i ${actualVideo} -t 15 -vf "fps=8,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 ${gifPath}`);
 
-    const host = `${req.protocol}://${req.get('host')}`;
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    const host = `${proto}://${req.get('host')}`;
     res.json({
       gif_url: `${host}/outputs/${id}.gif`,
       mp4_url: `${host}/outputs/${latest}`
     });
+
 
   } catch (err) {
     if (browser) await browser.close().catch(() => {});
