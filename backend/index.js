@@ -42,17 +42,19 @@ app.post('/generate', async (req, res) => {
     await page.evaluate(async () => {
       await new Promise(resolve => {
         let pos = 0;
-        const max = document.body.scrollHeight;
+        const max = Math.min(document.body.scrollHeight, 3000); // max 3000px
         const step = () => {
-          pos += 6;
+          pos += 15; // più veloce
           window.scrollTo({ top: pos, behavior: 'smooth' });
           if (pos < max) requestAnimationFrame(step);
-          else setTimeout(resolve, 800);
+          else setTimeout(resolve, 500);
         };
         requestAnimationFrame(step);
       });
     });
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500); // ridotto da 1000
+
+   
 
     // --- SCROLL TORNA SU ---
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
