@@ -13,7 +13,9 @@ app.use('/outputs', express.static(path.join(__dirname, 'outputs')));
 
 if (!fs.existsSync('./outputs')) fs.mkdirSync('./outputs');
 
-// --- GEMINI: analizza la pagina ---
+const jobs = {};
+
+// --- GEMINI ---
 async function analyzePage(html) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return { has_scroll: true, scroll_depth: 'full' };
@@ -55,33 +57,29 @@ const CURSOR_JS = `
   cursor.id = '__demo_cursor__';
   cursor.style.cssText = \`
     position: fixed;
-    width: 24px;
-    height: 24px;
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath fill='white' stroke='black' stroke-width='1.5' d='M5 2l14 9-7 2-4 7z'/%3E%3C/svg%3E") no-repeat center/contain;
+    width: 28px;
+    height: 28px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24'%3E%3Cpath fill='white' stroke='black' stroke-width='1.5' d='M5 2l14 9-7 2-4 7z'/%3E%3C/svg%3E") no-repeat center/contain;
     pointer-events: none;
     z-index: 999999;
     left: 100px;
     top: 100px;
-    transition: left 0.15s ease, top 0.15s ease;
+    transition: left 0.2s ease, top 0.2s ease;
   \`;
   document.body.appendChild(cursor);
-
   window.__moveCursor__ = (x, y) => {
     cursor.style.left = x + 'px';
     cursor.style.top = y + 'px';
   };
 `;
 
-app.post('/generate', async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'Missing url' });
-
-  const id = crypto.randomUUID();
+// --- JOB RUNNER ---
+async function runJob(id, url) {
+  let browser;
   const gifPath = `./outputs/${id}.gif`;
 
-  let browser;
   try {
-    // 1. Scarica HTML per Gemini
+    // 1. Scarica HTML
     let html = '';
     try {
       const pageRes = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -89,11 +87,11 @@ app.post('/generate', async (req, res) => {
     } catch (_) {}
 
     // 2. Analizza con Gemini
-    console.log('Analyzing page with Gemini...');
+    console.log(`[${id}] Analyzing with Gemini...`);
     const plan = await analyzePage(html);
-    console.log('Plan:', JSON.stringify(plan));
+    console.log(`[${id}] Plan:`, JSON.stringify(plan));
 
-    // 3. Avvia Playwright
+    // 3. Avvia browser
     browser = await chromium.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -108,15 +106,13 @@ app.post('/generate', async (req, res) => {
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(1500);
 
-    // 4. Inietta cursore animato
+    // 4. Inietta cursore
     await page.evaluate(CURSOR_JS);
     await page.waitForTimeout(300);
-
-    // 5. Muovi cursore al centro
     await page.evaluate(() => window.__moveCursor__(640, 360));
     await page.waitForTimeout(500);
 
-    // 6. Scroll fluido
+    // 5. Scroll fluido
     const scrollMax = plan.scroll_depth === 'half' ? 0.5 : 1.0;
     await page.evaluate(async (maxRatio) => {
       await new Promise(resolve => {
@@ -133,18 +129,17 @@ app.post('/generate', async (req, res) => {
     }, scrollMax);
     await page.waitForTimeout(800);
 
-    // 7. Torna su
+    // 6. Torna su
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
     await page.waitForTimeout(800);
 
-    // 8. Typing nel campo principale (se rilevato)
+    // 7. Typing
     if (plan.primary_input && plan.suggested_typing) {
       try {
         const inputEl = await page.$(plan.primary_input);
         if (inputEl) {
           const box = await inputEl.boundingBox();
           if (box) {
-            // Muovi cursore verso l'input
             await page.evaluate(({ x, y }) => window.__moveCursor__(x, y),
               { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) });
             await page.waitForTimeout(400);
@@ -154,11 +149,11 @@ app.post('/generate', async (req, res) => {
           await page.waitForTimeout(800);
         }
       } catch (e) {
-        console.log('Input interaction skipped:', e.message);
+        console.log(`[${id}] Input skipped:`, e.message);
       }
     }
 
-    // 9. Click CTA (se rilevato)
+    // 8. Click CTA
     if (plan.main_cta) {
       try {
         const ctaEl = await page.$(plan.main_cta);
@@ -173,14 +168,15 @@ app.post('/generate', async (req, res) => {
           await page.waitForTimeout(1500);
         }
       } catch (e) {
-        console.log('CTA click skipped:', e.message);
+        console.log(`[${id}] CTA skipped:`, e.message);
       }
     }
 
     await context.close();
     await browser.close();
+    browser = null;
 
-    // 10. Trova il video registrato
+    // 9. Trova video
     const files = fs.readdirSync('./outputs').filter(f => f.endsWith('.webm'));
     const latest = files.map(f => ({
       f, t: fs.statSync(`./outputs/${f}`).mtimeMs
@@ -188,23 +184,37 @@ app.post('/generate', async (req, res) => {
 
     if (!latest) throw new Error('Video not found');
 
-    const actualVideo = `./outputs/${latest}`;
+    // 10. Converti in GIF
+    execSync(`ffmpeg -i ./outputs/${latest} -t 15 -vf "fps=8,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 ${gifPath}`);
 
-    // 11. Converti in GIF
-    execSync(`ffmpeg -i ${actualVideo} -t 15 -vf "fps=8,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 ${gifPath}`);
-
-    const proto = req.headers['x-forwarded-proto'] || 'https';
-    const host = `${proto}://${req.get('host')}`;
-    res.json({
-      gif_url: `${host}/outputs/${id}.gif`,
-      mp4_url: `${host}/outputs/${latest}`
-    });
+    jobs[id] = {
+      status: 'done',
+      gif_url: `https://demo-generator-production-f2db.up.railway.app/outputs/${id}.gif`,
+      mp4_url: `https://demo-generator-production-f2db.up.railway.app/outputs/${latest}`
+    };
+    console.log(`[${id}] Done!`);
 
   } catch (err) {
     if (browser) await browser.close().catch(() => {});
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error(`[${id}] Error:`, err.message);
+    jobs[id] = { status: 'error', error: err.message };
   }
+}
+
+// --- ENDPOINTS ---
+app.post('/start', (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'Missing url' });
+  const id = crypto.randomUUID();
+  jobs[id] = { status: 'processing' };
+  runJob(id, url);
+  res.json({ job_id: id });
+});
+
+app.get('/status/:id', (req, res) => {
+  const job = jobs[req.params.id];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json(job);
 });
 
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
